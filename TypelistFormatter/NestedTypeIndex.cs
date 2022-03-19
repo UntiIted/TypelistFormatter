@@ -9,6 +9,7 @@ namespace TypelistFormatter
     internal class NestedTypeIndex
     {
         public string File { get; set; }
+        public string HeaderText { get; set; }
         public string FieldName { get; set; }
         public int StartLineIndex { get; set; }
         public int EndLineIndex { get; set; }
@@ -17,6 +18,7 @@ namespace TypelistFormatter
         public static void FindNestedTypesInFile(List<NestedTypeIndex> nestedTypes, string fileName, string[] lines, ref int i, int whiteSpaceCount)
         {
             var field = "";
+            var header = "";
             var start = -1;
 
             while (i < lines.Length - 1)
@@ -30,7 +32,8 @@ namespace TypelistFormatter
                 if (field == "" && whiteSpaceCount != 0) // outermost layer is ignored, it's only for the sake of going over the whole file
                 {
                     start = i; // this is the first nested line
-                    field = TypelistFormatter.GetRealTypeFromLine(lines[i - 1]); // if this is the first nested line, the previous line must contain the source field
+                    field = TypelistFormatter.GetTypeForLinkFromLine(lines[i - 1]); // if this is the first nested line, the previous line must contain the source field
+                    header = TypelistFormatter.GetTypeFromLine(lines[i - 1]);
                 }
 
                 int count = lines[i + 1].TakeWhile(Char.IsWhiteSpace).Count(); // typelist marks nests using whitespaces
@@ -42,6 +45,7 @@ namespace TypelistFormatter
                         nestedTypes.Add(new NestedTypeIndex
                         {
                             File = fileName,
+                            HeaderText = header,
                             FieldName = field,
                             StartLineIndex = start,
                             EndLineIndex = i,
