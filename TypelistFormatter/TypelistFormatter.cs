@@ -33,14 +33,18 @@ namespace TypelistFormatter
 
         public static void Run()
         {
+            List<string> summary = new();
+
             var files = Directory.GetFiles(dataDir);
+            files = files.OrderBy(f => f).ToArray();
 
             Directory.CreateDirectory("Results/nested-types");
             Directory.CreateDirectory("Results/datablocks");
 
+            summary.Add("* [Datablocks](reference/datablocks/README.md)");
+
             foreach (var file in files)
             {
-                Console.WriteLine(file);
                 if (!file.EndsWith("DataBlock.txt"))
                 {
                     continue;
@@ -54,8 +58,14 @@ namespace TypelistFormatter
                 CreateFields(output, file);
                 output = output.Select((string s) => s.Replace('<', ' ').Replace(">", string.Empty)).ToList(); // md thinks <> is inline html
 
-                File.WriteAllLines($"Results/datablocks/{currentDataBlock.Replace("DataBlock", string.Empty).ToLower()}.md", output);
+                var fileName = $"{currentDataBlock.Replace("DataBlock", string.Empty).ToLower()}.md";
+                summary.Add($"  * [{currentDataBlock.Replace("DataBlock", string.Empty)}](reference/datablocks/{fileName})");
+                File.WriteAllLines($"Results/datablocks/{fileName}", output);
             }
+
+            summary.Add("* [Nested Types](reference/nested-types/README.md)");
+
+            nestedTypes = nestedTypes.OrderBy(x => x.HeaderText).ToList();
 
             foreach(var type in nestedTypes)
             {
@@ -65,8 +75,11 @@ namespace TypelistFormatter
                 CreateFields(output, type.File, type.StartLineIndex, type.EndLineIndex, type.WhiteSpaceCount, false);
                 output = output.Select((string s) => s.Replace('<', ' ').Replace(">", string.Empty)).ToList(); // md thinks <> is inline html
 
+                summary.Add($"  * [{type.HeaderText}](reference/nested-types/{type.FieldName}.md)");
                 File.WriteAllLines($"Results/nested-types/{type.FieldName}.md", output);
             }
+
+            File.WriteAllLines("Results/SUMMARY.md", summary);
         }
 
         static void CreateHeader(List<string> output, string name, bool isDataBlock = true)
