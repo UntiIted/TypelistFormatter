@@ -7,14 +7,8 @@ using System.Threading.Tasks;
 
 namespace TypelistFormatter
 {
-    internal class TypelistFormatter
+    public class TypelistFormatter
     {
-        static string dataDir = "Data";
-
-        static string newLine = "\r\n";
-        static Regex typeRegex = new Regex(@"\b(.+): (.+)"); // type: value
-        static Regex enumRegex = new Regex(@"\(enum\) (.+): (.+)"); // (enum) type: value
-
         static List<string> RedundantTypeLines = new List<string>(new string[]
         {
             "### name - String",
@@ -33,15 +27,22 @@ namespace TypelistFormatter
 
         public static void Run()
         {
-            List<string> summary = new();
+            Summary summary = new Summary();
 
-            var files = Directory.GetFiles(dataDir);
+            var files = Directory.GetFiles(Constants.DataDir);
             files = files.OrderBy(f => f).ToArray();
 
             Directory.CreateDirectory("Results/nested-types");
-            Directory.CreateDirectory("Results/datablocks");
+            Directory.CreateDirectory($"Results/datablocks/{BlocksCategories.Data.GetCategoryDirectory(Constants.MainCategory)}");
+            Directory.CreateDirectory($"Results/datablocks/{BlocksCategories.Data.GetCategoryDirectory(Constants.RarelyEditedCategory)}");
+            Directory.CreateDirectory($"Results/datablocks/{BlocksCategories.Data.GetCategoryDirectory(Constants.UnusedCategory)}");
 
-            summary.Add("* [Datablocks](reference/datablocks/README.md)");
+            summary.CreateEntry(Constants.MainCategory,
+                $"reference/datablocks/{BlocksCategories.Data.GetCategoryDirectory(Constants.MainCategory)}");
+            summary.CreateEntry(Constants.RarelyEditedCategory,
+                $"reference/datablocks/{BlocksCategories.Data.GetCategoryDirectory(Constants.RarelyEditedCategory)}");
+            summary.CreateEntry(Constants.UnusedCategory,
+                $"reference/datablocks/{BlocksCategories.Data.GetCategoryDirectory(Constants.UnusedCategory)}");
 
             foreach (var file in files)
             {
@@ -58,12 +59,13 @@ namespace TypelistFormatter
                 CreateFields(output, file);
                 output = output.Select((string s) => s.Replace('<', ' ').Replace(">", string.Empty)).ToList(); // md thinks <> is inline html
 
-                var fileName = $"{currentDataBlock.Replace("DataBlock", string.Empty).ToLower()}.md";
-                summary.Add($"  * [{currentDataBlock.Replace("DataBlock", string.Empty)}](reference/datablocks/{fileName})");
-                File.WriteAllLines($"Results/datablocks/{fileName}", output);
-            }
+                var dbName = $"{currentDataBlock.Replace("DataBlock", string.Empty)}";
+                var category = BlocksCategories.Data.GetCategory(currentDataBlock);
+                var directory = BlocksCategories.Data.GetCategoryDirectory(category);
 
-            summary.Add("* [Nested Types](reference/nested-types/README.md)");
+                summary.AddDataBlock(category, dbName);
+                File.WriteAllLines($"Results/datablocks/{directory}/{dbName.ToLower()}.md", output);
+            }
 
             nestedTypes = nestedTypes.OrderBy(x => x.HeaderText).ToList();
 
@@ -75,11 +77,12 @@ namespace TypelistFormatter
                 CreateFields(output, type.File, type.StartLineIndex, type.EndLineIndex, type.WhiteSpaceCount, false);
                 output = output.Select((string s) => s.Replace('<', ' ').Replace(">", string.Empty)).ToList(); // md thinks <> is inline html
 
-                summary.Add($"  * [{type.HeaderText}](reference/nested-types/{type.FieldName}.md)");
+                summary.AddNestedType(type);
+                
                 File.WriteAllLines($"Results/nested-types/{type.FieldName}.md", output);
             }
 
-            File.WriteAllLines("Results/SUMMARY.md", summary);
+            summary.WriteSummary();
         }
 
         static void CreateHeader(List<string> output, string name, bool isDataBlock = true)
@@ -91,11 +94,14 @@ namespace TypelistFormatter
                 output.Add($"description: {name}");
             output.Add("---");
 
-            output.Add($"{newLine}# {name}{newLine}");
+            if (isDataBlock)
+                output.Add($"{Constants.NewLine}# {name.Replace("DataBlock", string.Empty)}{Constants.NewLine}");
+            else
+                output.Add($"{Constants.NewLine}# {name}{Constants.NewLine}");
 
-            output.Add("No description provided." + newLine);
+            output.Add("No description provided." + Constants.NewLine);
 
-            output.Add("***" + newLine);
+            output.Add("***" + Constants.NewLine);
 
             output.Add("## Fields");
         }
@@ -114,10 +120,10 @@ namespace TypelistFormatter
 
                 if (count <= whiteSpaceCount)
                 {
-                    output.Add(newLine + ProcessLine(lines, ref i, whiteSpaceCount, isDataBlock));
+                    output.Add(Constants.NewLine + ProcessLine(lines, ref i, whiteSpaceCount, isDataBlock));
 
                     if (!CheckLastAddedTypeRedundant(output))
-                        output.Add(newLine + "No description provided.");
+                        output.Add(Constants.NewLine + "No description provided.");
                 }
             }
 
@@ -140,33 +146,37 @@ namespace TypelistFormatter
             return isRedundant;
         }
 
-        static string ProcessLine(string[] lines, ref int i, int whiteSpaceCount, bool isDataBlock)
+        static string ProcessLine(string[] lines, ref int i, int whiteSpaceCount, bool fromDataBlock)
         {
             if (i < lines.Length - 1)
             {
                 int count = lines[i + 1].TakeWhile(Char.IsWhiteSpace).Count();
 
                 if (count > whiteSpaceCount)
-                    return ProcessNestedType(lines, ref i, whiteSpaceCount, isDataBlock);                
+                    return ProcessNestedType(lines, ref i, whiteSpaceCount, fromDataBlock);                
             }
 
             var line = lines[i].TrimStart();
 
             if (line.StartsWith("(enum)"))
             {
-                return ProcessEnum(line);
+                return ProcessEnum(line, fromDataBlock);
+            }
+            else if (Constants.IDReferenceRegex.IsMatch(line))
+            {
+                return ProcessIDReference(line, fromDataBlock);
             }
 
-            return ProcessPlainType(line);
+            return ProcessGenericType(line);
         }
 
-        static string ProcessNestedType(string[] lines, ref int i, int whiteSpaceCount, bool isDataBlock)
+        static string ProcessNestedType(string[] lines, ref int i, int whiteSpaceCount, bool fromDataBlock)
         {
-            var match = typeRegex.Match(lines[i]);
+            var match = Constants.GenericRegex.Match(lines[i]);
             var type = match.Groups[1].Value;
             var name = match.Groups[2].Value;
 
-            var res = $"### {name} - [{type}]({(isDataBlock ? "../nested-types" : ".")}/{GetTypeForLinkFromLine(lines[i])}.md) (nested type)";
+            var res = $"### {name} - [{type}]({(fromDataBlock ? "../../nested-types" : ".")}/{GetTypeForLinkFromLine(lines[i])}.md) (nested type)";
 
             int j = i + 1;
             while (j < lines.Length)
@@ -183,22 +193,34 @@ namespace TypelistFormatter
             return res;
         }
 
-        static string ProcessEnum(string line)
+        static string ProcessGenericType(string line)
         {
-            var match = enumRegex.Match(line);
-            var type = match.Groups[1].Value;
-            var name = match.Groups[2].Value;
-
-            return $"### {name} - [{type}](../enum-types.md#{GetTypeForLinkFromLine(line)}) (enum)";
-        }
-
-        static string ProcessPlainType(string line)
-        {
-            var match = typeRegex.Match(line);
+            var match = Constants.GenericRegex.Match(line);
             var type = match.Groups[1].Value;
             var name = match.Groups[2].Value;
 
             return $"### {name} - {type}";
+        }
+
+        static string ProcessEnum(string line, bool fromDataBlock)
+        {
+            var match = Constants.EnumRegex.Match(line);
+            var type = match.Groups[1].Value;
+            var name = match.Groups[2].Value;
+
+            return $"### {name} - [{type}]({(fromDataBlock ? "../../" : "../")}enum-types.md#{GetTypeForLinkFromLine(line)}) (enum)";
+        }
+
+        static string ProcessIDReference(string line, bool fromDataBlock)
+        {
+            var match = Constants.IDReferenceRegex.Match(line);
+            var dataBlock = match.Groups[1].Value;
+            var type = match.Groups[2].Value;
+            var name = match.Groups[3].Value;
+
+            var link = BlocksCategories.Data.GetLink(dataBlock, fromDataBlock);
+
+            return $"### {name} - {type} ([{dataBlock}]({link}))";
         }
 
         public static string GetTypeForLinkFromLine(string line)
@@ -212,12 +234,17 @@ namespace TypelistFormatter
 
             if (line.IndexOf("enum") < 0)
             {
-                var match = typeRegex.Match(line);
+                var match = Constants.GenericRegex.Match(line);
                 type = match.Groups[1].Value;
+            }
+            else if (Constants.IDReferenceRegex.IsMatch(line))
+            {
+                var match = Constants.IDReferenceRegex.Match(line);
+                type = match.Groups[2].Value;
             }
             else
             {
-                var match = enumRegex.Match(line);
+                var match = Constants.EnumRegex.Match(line);
                 type = match.Groups[1].Value;
             }
 

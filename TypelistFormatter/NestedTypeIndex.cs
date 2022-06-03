@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 
 namespace TypelistFormatter
 {
-    internal class NestedTypeIndex
+    public class NestedTypeIndex
     {
         public string File { get; set; }
         public string HeaderText { get; set; }

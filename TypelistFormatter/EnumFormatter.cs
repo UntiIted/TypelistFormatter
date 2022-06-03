@@ -23,8 +23,6 @@ namespace TypelistFormatter
 
             foreach (var file in files)
             {
-                Console.WriteLine(file);
-
                 var name = new Regex(@"\\(\w+)\.txt").Match(file).Groups[1].Value;
 
                 ProcessFile(output, name, File.ReadAllLines(file));
